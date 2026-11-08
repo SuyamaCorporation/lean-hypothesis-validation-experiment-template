@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lean仮説検証実験テンプレートカード</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen">
+<div class="max-w-5xl mx-auto p-4">
+  <h1 class="text-2xl font-bold text-gray-800 mb-1">Lean仮説検証実験テンプレートカード</h1>
+  <p class="text-gray-500 text-sm mb-5">Build-Measure-Learnサイクルの仮説検証を構造化するカードを作成・管理します。</p>
+
+  <div class="flex gap-3 mb-6 flex-wrap">
+    <button id="newCard" class="bg-blue-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-blue-700 shadow" aria-label="新しいカードを作成">＋ 新しいカード</button>
+    <button id="exportCsv" class="bg-green-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-green-700 shadow" aria-label="CSVエクスポート">CSVエクスポート</button>
+  </div>
+
+  <div id="cardGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+  <p id="emptyMsg" class="text-center text-gray-400 text-sm py-12">カードがまだありません。「＋ 新しいカード」から作成してください。</p>
+</div>
+
+<div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-y-auto">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8 p-6" role="dialog" aria-modal="true" aria-label="カード編集">
+    <h3 class="text-xl font-bold mb-5 text-gray-800" id="modalHeading">新しいカードを作成</h3>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-semibold text-blue-700 mb-1">① 仮説文 <span class="text-red-500">*</span></label>
+        <textarea id="f_hypothesis" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="例：○○機能を追加することで、週次アクティブユーザーが20%増加する" aria-label="仮説文"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-orange-600 mb-1">② 実験設計</label>
+        <textarea id="f_experiment" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="例：A/Bテスト。50%のユーザーに新機能を2週間公開する。" aria-label="実験設計"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-green-700 mb-1">③ 成功指標</label>
+        <textarea id="f_metric" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="例：実験群のWAUが対照群比+20%以上、かつ継続率が維持" aria-label="成功指標"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-purple-700 mb-1">④ 観測結果</label>
+        <textarea id="f_result" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" placeholder="例：WAU +15%（目標未達）。継続率は維持" aria-label="観測結果"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-yellow-600 mb-1">⑤ 学び</label>
+        <textarea id="f_insight" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" placeholder="例：機能自体は有効だがオンボーディングが不十分と判断" aria-label="学び"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-red-600 mb-1">⑥ 次のアクション</label>
+        <textarea id="f_next" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400" placeholder="例：オンボーディングフローを改善して再実験" aria-label="次のアクション"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-600 mb-1">ステータス</label>
+        <select id="f_status" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" aria-label="ステータス">
+          <option value="planning">計画中</option>
+          <option value="running">実験中</option>
+          <option value="validating">検証中</option>
+          <option value="done_success">完了（仮説確認）</option>
+          <option value="done_fail">完了（仮説棄却）</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex gap-3 mt-6">
+      <button id="modalSave" class="flex-1 bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700" aria-label="保存">保存</button>
+      <button id="modalCancel" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg font-semibold hover:bg-gray-200" aria-label="キャンセル">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const KEY = 'lean_cards_v1';
+let cards = [];
+let editId = null;
+
+const statusConfig = {
+  planning: { label:'計画中', cls:'bg-gray-100 text-gray-700' },
+  running: { label:'実験中', cls:'bg-blue-100 text-blue-700' },
+  validating: { label:'検証中', cls:'bg-yellow-100 text-yellow-700' },
+  done_success: { label:'完了（確認）', cls:'bg-green-100 text-green-700' },
+  done_fail: { label:'完了（棄却）', cls:'bg-red-100 text-red-700' }
+};
+
+const fields = [
+  { id:'f_hypothesis', label:'① 仮説文', color:'border-blue-200 bg-blue-50' },
+  { id:'f_experiment', label:'② 実験設計', color:'border-orange-200 bg-orange-50' },
+  { id:'f_metric', label:'③ 成功指標', color:'border-green-200 bg-green-50' },
+  { id:'f_result', label:'④ 観測結果', color:'border-purple-200 bg-purple-50' },
+  { id:'f_insight', label:'⑤ 学び', color:'border-yellow-200 bg-yellow-50' },
+  { id:'f_next', label:'⑥ 次のアクション', color:'border-red-200 bg-red-50' }
+];
+
+function load() {
+  try { cards = JSON.parse(localStorage.getItem(KEY)) || []; } catch { cards = []; }
+}
+function save() { localStorage.setItem(KEY, JSON.stringify(cards)); }
+
+function render() {
+  const grid = document.getElementById('cardGrid');
+  const empty = document.getElementById('emptyMsg');
+  grid.innerHTML = '';
+  empty.classList.toggle('hidden', cards.length > 0);
+  cards.forEach(card => {
+    const sc = statusConfig[card.status] || statusConfig.planning;
+    const div = document.createElement('div');
+    div.className = 'bg-white rounded-xl shadow p-5 border border-gray-100 hover:shadow-md transition';
+    div.innerHTML = `
+      <div class="flex items-start justify-between mb-3">
+        <span class="text-xs font-semibold px-2 py-1 rounded ${sc.cls}">${sc.label}</span>
+        <div class="flex gap-2">
+          <button onclick="startEdit('${card.id}')" class="text-xs text-blue-500 hover:text-blue-700 border border-blue-200 rounded px-2 py-1" aria-label="編集">編集</button>
+          <button onclick="deleteCard('${card.id}')" class="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1" aria-label="削除">削除</button>
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 mb-2">${new Date(card.created).toLocaleDateString('ja-JP')}</p>
+      ${fields.map(f => card[f.id] ? `<div class="mb-2 p-2 rounded border ${f.color}"><p class="text-xs font-semibold text-gray-600">${f.label}</p><p class="text-sm text-gray-800 mt-0.5">${esc(card[f.id])}</p></div>` : '').join('')}
+    `;
+    grid.appendChild(div);
+  });
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function startEdit(id) {
+  const card = cards.find(c => c.id === id);
+  if (!card) return;
+  editId = id;
+  document.getElementById('modalHeading').textContent = 'カードを編集';
+  fields.forEach(f => { document.getElementById(f.id).value = card[f.id] || ''; });
+  document.getElementById('f_status').value = card.status || 'planning';
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+document.getElementById('newCard').addEventListener('click', () => {
+  editId = null;
+  document.getElementById('modalHeading').textContent = '新しいカードを作成';
+  fields.forEach(f => { document.getElementById(f.id).value = ''; });
+  document.getElementById('f_status').value = 'planning';
+  document.getElementById('modal').classList.remove('hidden');
+});
+
+document.getElementById('modalCancel').addEventListener('click', () => {
+  document.getElementById('modal').classList.add('hidden');
+});
+
+document.getElementById('modalSave').addEventListener('click', () => {
+  const hyp = document.getElementById('f_hypothesis').value.trim();
+  if (!hyp) { alert('仮説文を入力してください。'); return; }
+  const data = { status: document.getElementById('f_status').value };
+  fields.forEach(f => { data[f.id] = document.getElementById(f.id).value.trim(); });
+  if (editId) {
+    const idx = cards.findIndex(c => c.id === editId);
+    if (idx >= 0) { cards[idx] = { ...cards[idx], ...data }; }
+  } else {
+    data.id = Date.now().toString();
+    data.created = new Date().toISOString();
+    cards.unshift(data);
+  }
+  save();
+  render();
+  document.getElementById('modal').classList.add('hidden');
+});
+
+function deleteCard(id) {
+  if (!confirm('このカードを削除しますか？')) return;
+  cards = cards.filter(c => c.id !== id);
+  save();
+  render();
+}
+
+document.getElementById('exportCsv').addEventListener('click', () => {
+  if (!cards.length) { alert('カードがありません。'); return; }
+  const headers = ['作成日','ステータス','仮説文','実験設計','成功指標','観測結果','学び','次のアクション'];
+  const fkeys = ['created','status','f_hypothesis','f_experiment','f_metric','f_result','f_insight','f_next'];
+  const rows = cards.map(c => fkeys.map(k => {
+    let v = k === 'created' ? new Date(c[k]).toLocaleDateString('ja-JP') : (k === 'status' ? (statusConfig[c[k]]?.label || c[k]) : (c[k] || ''));
+    return `"${String(v).replace(/"/g,'""')}"`;
+  }).join(','));
+  const csv = '﻿' + headers.map(h => `"${h}"`).join(',') + '\n' + rows.join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv' }));
+  a.download = 'lean_cards.csv';
+  a.click();
+});
+
+load();
+render();
+</script>
+</body>
+</html>
